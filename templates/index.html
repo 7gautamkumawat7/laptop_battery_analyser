@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battery Health & Analytics Dashboard | VoltPulse</title>
+    <meta name="description" content="Real-time battery diagnostics, health score, capacity degradation history, and recent usage reports powered by Windows powercfg and Flask.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-wrapper">
+        <!-- TOP HEADER -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="brand-logo">
+                    <div class="brand-icon-pulse">
+                        <i data-lucide="zap"></i>
+                    </div>
+                    <div>
+                        <div class="brand-title">Volt<span>Pulse</span></div>
+                        <div class="brand-subtitle">Battery Health & System Diagnostics</div>
+                    </div>
+                </div>
+                <div class="system-badge-pill" id="system-badge">
+                    <span class="pulse-dot active"></span>
+                    <span id="header-device-name">Detecting System...</span>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <!-- Live Battery Mini Widget -->
+                <div class="live-pill" id="live-pill">
+                    <div class="live-pill-icon" id="live-pill-icon">
+                        <i data-lucide="battery-charging"></i>
+                    </div>
+                    <div class="live-pill-info">
+                        <span class="live-pill-label">LIVE STATUS</span>
+                        <span class="live-pill-value" id="live-pill-text">--% · Connecting...</span>
+                    </div>
+                </div>
+
+                <!-- Auto Refresh Switch -->
+                <label class="toggle-control" title="Auto-refresh live battery status every 10s">
+                    <input type="checkbox" id="auto-refresh-toggle" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Live Poll</span>
+                </label>
+
+                <!-- Export Menu -->
+                <div class="dropdown">
+                    <button class="btn btn-secondary dropdown-toggle" id="export-dropdown-btn">
+                        <i data-lucide="download"></i>
+                        <span>Export</span>
+                        <i data-lucide="chevron-down" class="chevron"></i>
+                    </button>
+                    <div class="dropdown-menu" id="export-menu">
+                        <a href="/api/export/json" class="dropdown-item" download>
+                            <i data-lucide="file-json"></i> Export Full JSON
+                        </a>
+                        <a href="/api/export/csv" class="dropdown-item" download>
+                            <i data-lucide="file-spreadsheet"></i> Export History CSV
+                        </a>
+                        <a href="/raw-report" target="_blank" class="dropdown-item">
+                            <i data-lucide="external-link"></i> View Raw HTML Report
+                        </a>
+                        <button class="dropdown-item" onclick="window.print()">
+                            <i data-lucide="printer"></i> Print / Save PDF
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Run Fresh Report Button -->
+                <button class="btn btn-primary" id="btn-generate-report" title="Executes powercfg /batteryreport to generate a fresh battery diagnosis">
+                    <i data-lucide="refresh-cw" class="refresh-icon"></i>
+                    <span>Run Fresh Report</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN CONTENT CONTAINER -->
+        <main class="main-container">
+            <!-- NOTIFICATION / STATUS TOAST -->
+            <div id="toast-container" class="toast-container"></div>
+
+            <!-- HERO METRIC CARDS -->
+            <section class="hero-metrics-grid">
+                <!-- 1. Health Score Card -->
+                <div class="metric-card glass-card health-score-card">
+                    <div class="card-header-clean">
+                        <span class="card-label">BATTERY HEALTH</span>
+                        <span class="badge" id="health-verdict-badge">Pristine</span>
+                    </div>
+                    <div class="health-gauge-container">
+                        <svg class="health-svg-gauge" viewBox="0 0 120 120">
+                            <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
+                            <circle class="gauge-progress" id="gauge-circle" cx="60" cy="60" r="50"></circle>
+                        </svg>
+                        <div class="gauge-center-text">
+                            <span class="gauge-value" id="health-pct-display">--%</span>
+                            <span class="gauge-sub">HEALTH SCORE</span>
+                        </div>
+                    </div>
+                    <div class="health-verdict-box" id="health-verdict-box">
+                        <div class="verdict-title" id="health-verdict-title">Analyzing health...</div>
+                        <div class="verdict-desc" id="health-verdict-desc">Evaluating design vs full charge capacity...</div>
+                    </div>
+                </div>
+
+                <!-- 2. Real-time Live Battery Card -->
+                <div class="metric-card glass-card live-status-card">
+                    <div class="card-header-clean">
+                        <span class="card-label">CURRENT LIVE STATUS</span>
+                        <span class="badge badge-emerald" id="live-charging-badge">Plugged In</span>
+                    </div>
+                    <div class="live-metric-body">
+                        <div class="battery-visual-box">
+                            <div class="battery-shell">
+                                <div class="battery-terminal"></div>
+                                <div class="battery-level-fill" id="battery-fill-bar" style="width: 80%;"></div>
+                                <div class="battery-bolt-icon" id="battery-bolt-icon">
+                                    <i data-lucide="zap"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="live-big-metrics">
+                            <div class="live-percentage" id="live-percent-display">--%</div>
+                            <div class="live-power-source" id="live-power-source">Detecting power source...</div>
+                        </div>
+                    </div>
+                    <div class="metric-footer-info">
+                        <div class="info-row">
+                            <span class="text-muted"><i data-lucide="clock" class="mini-icon"></i> Est. Remaining:</span>
+                            <span class="font-mono text-highlight" id="live-time-remaining">Calculating...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="text-muted"><i data-lucide="activity" class="mini-icon"></i> Power State:</span>
+                            <span class="font-mono" id="live-charging-state">Checking...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Design vs Full Charge Capacity Card -->
+                <div class="metric-card glass-card capacity-card">
+                    <div class="card-header-clean">
+                        <span class="card-label">CAPACITY COMPARISON</span>
+                        <span class="badge badge-cyan" id="wear-badge">0% Wear</span>
+                    </div>
+                    <div class="capacity-stats-grid">
+                        <div class="capacity-stat-box">
+                            <span class="cap-title">FULL CHARGE</span>
+                            <span class="cap-value text-emerald font-mono" id="full-charge-mwh">-- mWh</span>
+                            <span class="cap-wh font-mono text-muted" id="full-charge-wh">-- Wh</span>
+                        </div>
+                        <div class="capacity-stat-divider">
+                            <i data-lucide="arrow-right-left"></i>
+                        </div>
+                        <div class="capacity-stat-box">
+                            <span class="cap-title">DESIGN RATING</span>
+                            <span class="cap-value text-cyan font-mono" id="design-cap-mwh">-- mWh</span>
+                            <span class="cap-wh font-mono text-muted" id="design-cap-wh">-- Wh</span>
+                        </div>
+                    </div>
+                    <div class="capacity-bar-wrapper">
+                        <div class="capacity-bar-labels">
+                            <span>Available Capacity</span>
+                            <span id="capacity-retention-text">100% Retained</span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill fill-emerald" id="capacity-progress-fill" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                    <div class="metric-footer-info">
+                        <div class="info-row">
+                            <span class="text-muted">Capacity Degradation:</span>
+                            <span class="font-mono text-rose" id="capacity-lost-display">0 mWh Lost</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Cycle Count & Lifespan Card -->
+                <div class="metric-card glass-card cycle-card">
+                    <div class="card-header-clean">
+                        <span class="card-label">CYCLE COUNT & SPECS</span>
+                        <span class="badge badge-purple" id="cycle-wear-badge">Low Wear</span>
+                    </div>
+                    <div class="cycle-metric-body">
+                        <div class="cycle-big-stat">
+                            <span class="cycle-number font-mono" id="cycle-count-display">--</span>
+                            <span class="cycle-label">CHARGE CYCLES</span>
+                        </div>
+                        <div class="battery-tech-tags">
+                            <div class="tech-tag font-mono" id="battery-chem-tag">LiP / Li-Ion</div>
+                            <div class="tech-tag font-mono" id="battery-sn-tag">SN: --</div>
+                        </div>
+                    </div>
+                    <div class="capacity-bar-wrapper">
+                        <div class="capacity-bar-labels">
+                            <span>Cycle Life Usage</span>
+                            <span id="cycle-progress-text">-- / 500 Cycles</span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill fill-purple" id="cycle-progress-fill" style="width: 2%;"></div>
+                        </div>
+                    </div>
+                    <div class="metric-footer-info">
+                        <div class="info-row">
+                            <span class="text-muted">Battery Model:</span>
+                            <span class="font-mono text-highlight" id="battery-name-display">--</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- NAVIGATION TABS -->
+            <nav class="dashboard-tabs">
+                <button class="tab-btn active" data-tab="tab-overview">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Overview & Health</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-recent">
+                    <i data-lucide="calendar"></i>
+                    <span>Last Days & Recent Activity</span>
+                    <span class="tab-counter" id="recent-count-badge">0</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-trends">
+                    <i data-lucide="trending-down"></i>
+                    <span>Capacity History & Degradation</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-live">
+                    <i data-lucide="gauge"></i>
+                    <span>Live Power Monitor</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-specs">
+                    <i data-lucide="cpu"></i>
+                    <span>System Specifications</span>
+                </button>
+            </nav>
+
+            <!-- TAB 1: OVERVIEW & HEALTH -->
+            <section class="tab-pane active" id="tab-overview">
+                <div class="dashboard-grid-2col">
+                    <!-- Drain Timeline Chart Card -->
+                    <div class="content-card glass-card">
+                        <div class="card-header-styled">
+                            <div class="title-wrap">
+                                <i data-lucide="activity" class="text-cyan"></i>
+                                <h3>Recent Days Battery Level Timeline</h3>
+                            </div>
+                            <span class="header-desc">Observed charge and drain curve over recent sessions</span>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 320px;">
+                            <canvas id="drainTimelineChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Daily Activity Breakdown Card -->
+                    <div class="content-card glass-card">
+                        <div class="card-header-styled">
+                            <div class="title-wrap">
+                                <i data-lucide="bar-chart-3" class="text-emerald"></i>
+                                <h3>Daily Power State Activity</h3>
+                            </div>
+                            <span class="header-desc">Active vs Standby power duration by day</span>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 320px;">
+                            <canvas id="dailyActivityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Battery Life Estimates Comparison -->
+                <div class="content-card glass-card mt-4">
+                    <div class="card-header-styled">
+                        <div class="title-wrap">
+                            <i data-lucide="timer" class="text-purple"></i>
+                            <h3>Battery Life Estimates (Full Charge vs Design Capacity)</h3>
+                        </div>
+                        <span class="header-desc">Estimated runtime comparison based on observed drains</span>
+                    </div>
+                    <div class="estimates-highlight-banner" id="current-estimate-banner">
+                        <div class="est-item">
+                            <span class="est-label">CURRENT FULL CHARGE ESTIMATE</span>
+                            <span class="est-val font-mono text-emerald" id="est-current-full">--</span>
+                        </div>
+                        <div class="est-divider"></div>
+                        <div class="est-item">
+                            <span class="est-label">ORIGINAL FACTORY ESTIMATE</span>
+                            <span class="est-val font-mono text-cyan" id="est-current-design">--</span>
+                        </div>
+                        <div class="est-divider"></div>
+                        <div class="est-item">
+                            <span class="est-label">ESTIMATED RUNTIME DIFF</span>
+                            <span class="est-val font-mono" id="est-current-diff">--</span>
+                        </div>
+                    </div>
+                    <div class="table-responsive mt-3">
+                        <table class="modern-table" id="estimates-table">
+                            <thead>
+                                <tr>
+                                    <th>OBSERVED PERIOD</th>
+                                    <th>AT FULL CHARGE (ACTIVE)</th>
+                                    <th>AT FULL CHARGE (STANDBY)</th>
+                                    <th>AT DESIGN CAPACITY (ACTIVE)</th>
+                                    <th>AT DESIGN CAPACITY (STANDBY)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="estimates-table-body">
+                                <tr><td colspan="5" class="text-center text-muted py-4">Loading estimates...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: LAST DAYS & RECENT USAGE -->
+            <section class="tab-pane" id="tab-recent">
+                <!-- Daily Quick Summaries Cards -->
+                <div class="daily-cards-scroller" id="daily-summary-cards">
+                    <!-- Populated dynamically via JS -->
+                </div>
+
+                <!-- Recent Usage Event Logs Card -->
+                <div class="content-card glass-card mt-4">
+                    <div class="card-header-flex">
+                        <div>
+                            <div class="title-wrap">
+                                <i data-lucide="list-filter" class="text-cyan"></i>
+                                <h3>Last Days Power State Transitions & Logs</h3>
+                            </div>
+                            <span class="header-desc">Chronological power states over the last 3-7 days</span>
+                        </div>
+                        <!-- Filters -->
+                        <div class="filter-controls">
+                            <div class="search-input-box">
+                                <i data-lucide="search" class="search-icon"></i>
+                                <input type="text" id="usage-search-input" placeholder="Search state / date / time...">
+                            </div>
+                            <select id="source-filter" class="custom-select">
+                                <option value="all">All Sources (AC & Battery)</option>
+                                <option value="Battery">Battery Power Only</option>
+                                <option value="AC">AC Power Only</option>
+                            </select>
+                            <select id="state-filter" class="custom-select">
+                                <option value="all">All States</option>
+                                <option value="Active">Active</option>
+                                <option value="Connected standby">Connected Standby</option>
+                                <option value="Suspended">Suspended</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive mt-3">
+                        <table class="modern-table" id="recent-usage-table">
+                            <thead>
+                                <tr>
+                                    <th>START TIME & DATE</th>
+                                    <th>POWER STATE</th>
+                                    <th>POWER SOURCE</th>
+                                    <th>CAPACITY REMAINING (%)</th>
+                                    <th>CAPACITY REMAINING (mWh)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-usage-tbody">
+                                <tr><td colspan="5" class="text-center text-muted py-4">Loading recent usage...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-pagination">
+                        <span class="pagination-info" id="pagination-info">Showing 0 of 0 entries</span>
+                        <div class="pagination-buttons">
+                            <button class="btn btn-sm btn-secondary" id="btn-prev-page" disabled>Previous</button>
+                            <button class="btn btn-sm btn-secondary" id="btn-next-page">Next</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Battery Drains Table Card -->
+                <div class="content-card glass-card mt-4">
+                    <div class="card-header-styled">
+                        <div class="title-wrap">
+                            <i data-lucide="flame" class="text-amber"></i>
+                            <h3>Battery Drain Events (Discharge Sessions)</h3>
+                        </div>
+                        <span class="header-desc">Active drain durations and total energy consumed per session</span>
+                    </div>
+                    <div class="table-responsive mt-3">
+                        <table class="modern-table" id="drains-table">
+                            <thead>
+                                <tr>
+                                    <th>START TIME</th>
+                                    <th>POWER STATE</th>
+                                    <th>DRAIN DURATION</th>
+                                    <th>ENERGY DRAINED (%)</th>
+                                    <th>ENERGY DRAINED (mWh)</th>
+                                    <th>DRAIN RATE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="drains-tbody">
+                                <tr><td colspan="6" class="text-center text-muted py-4">Loading drain events...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: CAPACITY HISTORY & DEGRADATION -->
+            <section class="tab-pane" id="tab-trends">
+                <div class="content-card glass-card">
+                    <div class="card-header-styled">
+                        <div class="title-wrap">
+                            <i data-lucide="line-chart" class="text-cyan"></i>
+                            <h3>Battery Capacity Degradation Over Time</h3>
+                        </div>
+                        <span class="header-desc">Historical tracking of Full Charge Capacity vs Original Factory Design Capacity</span>
+                    </div>
+                    <div class="chart-container" style="position: relative; height: 380px;">
+                        <canvas id="capacityHistoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Historical Table -->
+                <div class="content-card glass-card mt-4">
+                    <div class="card-header-styled">
+                        <div class="title-wrap">
+                            <i data-lucide="history" class="text-purple"></i>
+                            <h3>Capacity History Log</h3>
+                        </div>
+                        <span class="header-desc">Recorded full charge capacity per reporting period</span>
+                    </div>
+                    <div class="table-responsive mt-3">
+                        <table class="modern-table" id="capacity-history-table">
+                            <thead>
+                                <tr>
+                                    <th>REPORTING PERIOD</th>
+                                    <th>FULL CHARGE CAPACITY</th>
+                                    <th>DESIGN CAPACITY</th>
+                                    <th>HEALTH RETENTION (%)</th>
+                                    <th>CAPACITY LOSS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="capacity-history-tbody">
+                                <tr><td colspan="5" class="text-center text-muted py-4">Loading capacity history...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: LIVE POWER MONITOR -->
+            <section class="tab-pane" id="tab-live">
+                <div class="live-monitor-grid">
+                    <div class="content-card glass-card text-center">
+                        <div class="card-header-clean">
+                            <span class="card-label">REAL-TIME BATTERY GAUGE</span>
+                            <span class="live-indicator-dot"></span>
+                        </div>
+                        <div class="live-radial-gauge-container mt-4">
+                            <div class="live-giant-pct font-mono" id="live-gauge-pct">--%</div>
+                            <div class="live-sub-status" id="live-gauge-state">Connecting...</div>
+                        </div>
+                        <div class="live-meta-chips mt-4">
+                            <div class="meta-chip">
+                                <span class="chip-label">POWER SOURCE</span>
+                                <span class="chip-value" id="live-chip-source">--</span>
+                            </div>
+                            <div class="meta-chip">
+                                <span class="chip-label">EST. RUNTIME</span>
+                                <span class="chip-value font-mono" id="live-chip-time">--</span>
+                            </div>
+                            <div class="meta-chip">
+                                <span class="chip-label">HEALTH SCORE</span>
+                                <span class="chip-value font-mono text-emerald" id="live-chip-health">--%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="content-card glass-card">
+                        <div class="card-header-styled">
+                            <div class="title-wrap">
+                                <i data-lucide="terminal" class="text-emerald"></i>
+                                <h3>Live Telemetry Stream</h3>
+                            </div>
+                            <span class="header-desc">Continuous real-time polling events</span>
+                        </div>
+                        <div class="telemetry-terminal font-mono" id="telemetry-terminal">
+                            <div class="term-line text-muted">[00:00:00] Initializing VoltPulse diagnostics stream...</div>
+                            <div class="term-line text-cyan">[00:00:01] Connected to Windows powercfg subsystem.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: SYSTEM SPECIFICATIONS -->
+            <section class="tab-pane" id="tab-specs">
+                <div class="dashboard-grid-2col">
+                    <!-- System Details -->
+                    <div class="content-card glass-card">
+                        <div class="card-header-styled">
+                            <div class="title-wrap">
+                                <i data-lucide="laptop" class="text-cyan"></i>
+                                <h3>System Product & Platform</h3>
+                            </div>
+                            <span class="header-desc">Host computer details and operating environment</span>
+                        </div>
+                        <div class="specs-list" id="system-specs-list">
+                            <div class="spec-item">
+                                <span class="spec-name">Computer Name</span>
+                                <span class="spec-val font-mono" id="spec-comp-name">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">System Product</span>
+                                <span class="spec-val font-mono text-highlight" id="spec-product-name">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">BIOS Version</span>
+                                <span class="spec-val font-mono" id="spec-bios">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">OS Build</span>
+                                <span class="spec-val font-mono" id="spec-os">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Platform Role</span>
+                                <span class="spec-val font-mono" id="spec-role">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Connected Standby</span>
+                                <span class="spec-val font-mono text-emerald" id="spec-standby">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Report Generated Time</span>
+                                <span class="spec-val font-mono" id="spec-report-time">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Battery Hardware Details -->
+                    <div class="content-card glass-card">
+                        <div class="card-header-styled">
+                            <div class="title-wrap">
+                                <i data-lucide="battery" class="text-purple"></i>
+                                <h3>Installed Battery Hardware</h3>
+                            </div>
+                            <span class="header-desc">Pack manufacture information and chemical specifications</span>
+                        </div>
+                        <div class="specs-list" id="battery-specs-list">
+                            <div class="spec-item">
+                                <span class="spec-name">Battery Model Name</span>
+                                <span class="spec-val font-mono text-highlight" id="spec-bat-name">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Manufacturer</span>
+                                <span class="spec-val font-mono" id="spec-bat-mfg">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Serial Number</span>
+                                <span class="spec-val font-mono" id="spec-bat-sn">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Chemistry</span>
+                                <span class="spec-val font-mono" id="spec-bat-chem">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Factory Design Capacity</span>
+                                <span class="spec-val font-mono text-cyan" id="spec-bat-design">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Current Full Charge Capacity</span>
+                                <span class="spec-val font-mono text-emerald" id="spec-bat-full">--</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-name">Recorded Cycle Count</span>
+                                <span class="spec-val font-mono text-purple" id="spec-bat-cycles">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- FOOTER -->
+        <footer class="app-footer">
+            <div class="footer-left">
+                <span>VoltPulse Battery Health Diagnostic Utility</span>
+                <span class="footer-dot">·</span>
+                <span>Powered by Windows PowerCFG Engine & Flask</span>
+            </div>
+            <div class="footer-right">
+                <span id="footer-last-updated">Last Report: Just now</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Inject initial data for immediate zero-lag rendering -->
+    <script>
+        window.__INITIAL_BATTERY_DATA__ = {{ initial_data | tojson | safe }};
+    </script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
