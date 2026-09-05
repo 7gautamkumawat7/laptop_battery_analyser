@@ -4,14 +4,14 @@ echo ========================================================
 echo   VoltPulse - Battery Health & Diagnostics Web Dashboard
 echo ========================================================
 echo.
-echo Starting Flask web server...
+echo Starting VoltPulse Desktop Application...
 
 if exist "d:\anaconda\python.exe" (
-    "d:\anaconda\python.exe" app.py
+    "d:\anaconda\python.exe" main.py
 ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
-    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" app.py
+    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" main.py
 ) else (
-    python app.py
+    python main.py
 )
 
 pause

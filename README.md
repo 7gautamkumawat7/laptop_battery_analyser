@@ -89,20 +89,42 @@ Once started, open your web browser and navigate to:
 ## 📁 Project Structure
 
 ```
-laptop_battery_analyser/
-├── app.py                      # Flask application entrypoint & API routes
-├── battery_parser.py           # Report generation, HTML parsing & live metrics logic
-├── battery_report_analyzer.py  # Standalone CLI analysis script
-├── run.bat                     # Quick launcher batch file for Windows
-├── README.md                   # Project documentation, tech stack & launch instructions
+battery_health_checker/
+├── app.py                      # Flask API backend with dynamic sys._MEIPASS path resolution
+├── main.py                     # Desktop GUI launcher (PyWebView + background Flask thread)
+├── battery_parser.py           # powercfg command runner, HTML parser & live telemetry
+├── battery_report_analyzer.py  # Health scoring & diagnostics calculation logic
+├── battery-report.html         # Sample / fallback battery report
+├── VoltPulse.spec              # PyInstaller bundle specification
+├── build.bat                   # 1-click batch script to compile into dist/VoltPulse.exe
+├── run.bat                     # 1-click dev launcher for desktop app
+├── requirements.txt            # Project dependencies
 ├── templates/
-│   └── index.html              # Main dashboard UI template
+│   └── index.html              # Modern dashboard Jinja2 template
 └── static/
     ├── css/
-    │   └── style.css           # Modern dark-mode UI stylesheet
+    │   └── style.css           # Dashboard styling & dark mode aesthetics
     └── js/
-        └── app.js              # Interactive dashboard logic & charts
+        └── app.js              # Interactive charts, polling & UI logic
 ```
+
+---
+
+## 📦 Converting into a Standalone Desktop Software (`VoltPulse.exe`)
+
+VoltPulse is converted from a standard web app into a portable Windows desktop application using **PyWebView** and **PyInstaller**:
+
+1. **Native Desktop Window (`PyWebView`)**: Instead of requiring the user to open a web browser, `main.py` starts Flask quietly in a background thread and embeds the dashboard directly in a native **1200x800** desktop window powered by Windows Edge WebView2.
+2. **Dynamic Asset Loading (`sys._MEIPASS`)**: `app.py` detects if it is running inside a compiled bundle and retrieves templates/static assets dynamically from the temporary extraction directory.
+3. **Hardware Diagnostics (`powercfg`)**: The executable calls the built-in Windows `powercfg.exe` utility directly on whichever laptop it is running on, generating accurate real-time hardware diagnostics without external dependencies.
+4. **Single-File Distribution (`PyInstaller`)**: Bundles Python runtime, libraries, backend logic, and UI assets into a single executable file: `dist/VoltPulse.exe`.
+
+### 🔨 How to Build the Executable
+Run the included build script:
+```powershell
+.\build.bat
+```
+The resulting `dist\VoltPulse.exe` can be copied to **any Windows laptop/PC** and executed immediately without installing Python or running any commands.
 
 ---
 
@@ -110,7 +132,9 @@ laptop_battery_analyser/
 
 - `GET /` - Main interactive dashboard UI
 - `GET /api/battery-data` - JSON payload of parsed battery health, specs, usage history, and live stats
-- `POST /api/refresh-report` - Triggers Windows `powercfg /batteryreport` and parses fresh data
+- `POST /api/generate-report` - Triggers Windows `powercfg /batteryreport` and parses fresh data
 - `GET /api/live-status` - Quick real-time polling endpoint for live charging state and battery percentage
-- `GET /api/export-csv` - Downloads battery capacity history as a CSV file
+- `GET /api/export/csv` - Downloads battery capacity history as a CSV file
+- `GET /api/export/json` - Downloads battery health summary as a JSON file
 - `GET /raw-report` - Serves the raw Windows-generated HTML battery report
+

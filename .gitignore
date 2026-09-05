@@ -17,3 +17,9 @@ Thumbs.db
 # Generated runtime reports & temporary files
 battery-report.html
 *.log
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
